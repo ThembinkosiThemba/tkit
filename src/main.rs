@@ -1,9 +1,13 @@
 // > manual description for installing tools
-// < after update commad, it should automatically save when creating a new tool, instead of waiting for me to press enter
-// 
+// > after update commad, it should automatically save when creating a new tool, instead of waiting for me to press enter
+// > search command to search any package from remote registries, including crates.io, npm, apt, snap, web socs
+// > run command to run a tool
+// > delete a tool from config
 use anyhow::{Result, anyhow};
+use base64::{Engine as _, engine::general_purpose};
 use clap::{Parser, Subcommand};
 use colored::*;
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -31,8 +35,35 @@ enum Commands {
     List,
     /// Add a new tool configuration
     Add { tool: String },
+    /// Delete a tool configuration
+    Delete { tool: String },
+    /// Run a tool
+    Run { tool: String },
     /// Initialize the tkit configuration
     Init,
+    /// Sync configuration with GitHub
+    Sync {
+        #[command(subcommand)]
+        action: SyncAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum SyncAction {
+    /// Setup GitHub integration
+    Setup {
+        /// GitHub repository (username/repo-name)
+        repo: String,
+        /// GitHub personal access token
+        #[arg(short, long)]
+        token: Option<String>,
+    },
+    /// Push local config to GitHub
+    Push,
+    /// Pull config from GitHub
+    Pull,
+    /// Show sync status
+    Status,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -43,18 +74,58 @@ struct ToolConfig {
     remove_commands: Vec<String>,
     update_commands: Vec<String>,
     #[serde(default)]
+    run_commands: Vec<String>,
+    #[serde(default)]
     installed: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Config {
     tools: HashMap<String, ToolConfig>,
+    #[serde(default)]
+    sync: SyncConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+struct SyncConfig {
+    repo: Option<String>,
+    token: Option<String>,
+    last_sync: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct GitHubFile {
+    name: String,
+    path: String,
+    sha: String,
+    size: u64,
+    url: String,
+    html_url: String,
+    git_url: String,
+    download_url: Option<String>,
+    #[serde(rename = "type")]
+    file_type: String,
+    content: Option<String>,
+    encoding: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct GitHubCreateFile {
+    message: String,
+    content: String,
+    sha: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct GitHubResponse {
+    content: GitHubFile,
 }
 
 impl Config {
     fn new() -> Self {
         Self {
             tools: HashMap::new(),
+            sync: SyncConfig::default(),
         }
     }
 
@@ -88,6 +159,7 @@ fn get_config_path() -> Result<PathBuf> {
         dirs::config_dir().ok_or_else(|| anyhow!("Could not determine config directory"))?;
     Ok(config_dir.join("tkit").join("config.yaml"))
 }
+
 
 async fn execute_commands(commands: &[String], tool_name: &str, action: &str) -> Result<()> {
     if commands.is_empty() {
@@ -242,7 +314,245 @@ fn list_tools() -> Result<()> {
     Ok(())
 }
 
+async fn validate_github_access(repo: &str, token: &str) -> Result<()> {
+    let client = reqwest::Client::new();
+    let url = format!("https://api.github.com/repos/{}", repo);
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", token))?,
+    );
+    headers.insert(USER_AGENT, HeaderValue::from_static("tkit/0.1.0"));
+
+    let response = client.get(&url).headers(headers).send().await?;
+
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "Failed to access repository '{}'. Status: {}. Check your token and repository name.",
+            repo,
+            response.status()
+        ));
+    }
+
+    Ok(())
+}
+
+async fn setup_github_sync(repo: String, token: Option<String>) -> Result<()> {
+    let mut config = Config::load()?;
+
+    // Get token from user if not provided
+    let token = if let Some(t) = token {
+        t
+    } else {
+        use std::io::{self, Write};
+        print!("Enter your GitHub Personal Access Token: ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        input.trim().to_string()
+    };
+
+    // Validate token and repo
+    validate_github_access(&repo, &token).await?;
+
+    config.sync.repo = Some(repo.clone());
+    config.sync.token = Some(token);
+    config.save()?;
+
+    println!(
+        "{}",
+        format!("✓ GitHub sync configured for repository: {}", repo)
+            .green()
+            .bold()
+    );
+    println!("  Use 'tkit sync push' to upload your config");
+    println!("  Use 'tkit sync pull' to download config from GitHub");
+
+    Ok(())
+}
+
+async fn push_config_to_github() -> Result<()> {
+    let config = Config::load()?;
+
+    let repo = config.sync.repo.as_ref().ok_or_else(|| {
+        anyhow!("GitHub sync not configured. Run 'tkit sync setup <repo>' first.")
+    })?;
+    let token =
+        config.sync.token.as_ref().ok_or_else(|| {
+            anyhow!("GitHub token not found. Run 'tkit sync setup <repo>' first.")
+        })?;
+
+    // Create a copy of config without the token for pushing to GitHub
+    let mut safe_config = config.clone();
+    safe_config.sync.token = None;
+    let config_content = serde_yaml::to_string(&safe_config)?;
+    let encoded_content = general_purpose::STANDARD.encode(config_content);
+
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://api.github.com/repos/{}/contents/tkit-config.yaml",
+        repo
+    );
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", token))?,
+    );
+    headers.insert(USER_AGENT, HeaderValue::from_static("tkit/0.1.0"));
+
+    // Check if file exists to get SHA
+    let existing_response = client.get(&url).headers(headers.clone()).send().await;
+    let sha = if let Ok(response) = existing_response {
+        if response.status().is_success() {
+            let file: GitHubFile = response.json().await?;
+            Some(file.sha)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let payload = GitHubCreateFile {
+        message: format!(
+            "Update tkit config - {}",
+            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+        ),
+        content: encoded_content,
+        sha,
+    };
+
+    let response = client
+        .put(&url)
+        .headers(headers)
+        .json(&payload)
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        println!(
+            "{}",
+            "✓ Configuration pushed to GitHub successfully!"
+                .green()
+                .bold()
+        );
+
+        // Update last sync time
+        let mut updated_config = config;
+        updated_config.sync.last_sync = Some(chrono::Utc::now().to_rfc3339());
+        updated_config.save()?;
+    } else {
+        let error_text = response.text().await?;
+        return Err(anyhow!("Failed to push to GitHub: {}", error_text));
+    }
+
+    Ok(())
+}
+
+async fn show_sync_status() -> Result<()> {
+    let config = Config::load()?;
+
+    println!("{}", "GitHub Sync Status:".blue().bold());
+
+    if let Some(repo) = &config.sync.repo {
+        println!("  Repository: {}", repo.green());
+        println!(
+            "  Token: {}",
+            if config.sync.token.is_some() {
+                "✓ Configured".green()
+            } else {
+                "✗ Not set".red()
+            }
+        );
+
+        if let Some(last_sync) = &config.sync.last_sync {
+            println!("  Last sync: {}", last_sync);
+        } else {
+            println!("  Last sync: {}", "Never".yellow());
+        }
+    } else {
+        println!("  Status: {}", "Not configured".yellow());
+        println!("  Run 'tkit sync setup <username/repo>' to get started");
+    }
+
+    Ok(())
+}
+
+async fn pull_config_from_github() -> Result<()> {
+    let config = Config::load()?;
+
+    let repo = config.sync.repo.as_ref().ok_or_else(|| {
+        anyhow!("GitHub sync not configured. Run 'tkit sync setup <repo>' first.")
+    })?;
+    let token =
+        config.sync.token.as_ref().ok_or_else(|| {
+            anyhow!("GitHub token not found. Run 'tkit sync setup <repo>' first.")
+        })?;
+
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://api.github.com/repos/{}/contents/tkit-config.yaml",
+        repo
+    );
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", token))?,
+    );
+    headers.insert(USER_AGENT, HeaderValue::from_static("tkit/0.1.0"));
+
+    let response = client.get(&url).headers(headers).send().await?;
+
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "Failed to fetch config from GitHub. Make sure the file exists and you have access."
+        ));
+    }
+
+    let file: GitHubFile = response.json().await?;
+
+    let content = file
+        .content
+        .ok_or_else(|| anyhow!("No content in GitHub file"))?;
+    let decoded_content = general_purpose::STANDARD.decode(content.replace('\n', ""))?;
+    let config_str = String::from_utf8(decoded_content)?;
+
+    let remote_config: Config = serde_yaml::from_str(&config_str)?;
+
+    // Backup current config
+    let backup_path = get_config_path()?.with_extension("yaml.backup");
+    if let Ok(current_content) = fs::read_to_string(get_config_path()?) {
+        fs::write(&backup_path, current_content)?;
+        println!(
+            "{}",
+            format!("✓ Current config backed up to: {}", backup_path.display()).yellow()
+        );
+    }
+
+    // Merge configurations (preserve local sync settings)
+    let mut merged_config = remote_config;
+    merged_config.sync = config.sync; // Keep local sync settings
+    merged_config.sync.last_sync = Some(chrono::Utc::now().to_rfc3339());
+
+    merged_config.save()?;
+
+    println!(
+        "{}",
+        "✓ Configuration pulled from GitHub successfully!"
+            .green()
+            .bold()
+    );
+    println!("  {} tools loaded", merged_config.tools.len());
+
+    Ok(())
+}
+
 fn add_tool(tool_name: &str) -> Result<()> {
+    use std::io::{self, Write};
+    
     let mut config = Config::load()?;
 
     if config.tools.contains_key(tool_name) {
@@ -257,28 +567,32 @@ fn add_tool(tool_name: &str) -> Result<()> {
         "{}",
         format!("Adding tool '{}'...", tool_name).blue().bold()
     );
+
+    // Get description first (required)
+    print!("Description: ");
+    io::stdout().flush()?;
+    let mut description = String::new();
+    std::io::stdin().read_line(&mut description)?;
+    let description = description.trim().to_string();
+    
+    if description.is_empty() {
+        return Err(anyhow!("Description is required"));
+    }
+
     println!("Enter commands for each action (empty line to finish):");
 
     let install_commands = read_commands("Install")?;
     let remove_commands = read_commands("Remove")?;
     let update_commands = read_commands("Update")?;
-
-    print!("Description (optional): ");
-    let mut description = String::new();
-    std::io::stdin().read_line(&mut description)?;
-    let description = description.trim();
-    let description = if description.is_empty() {
-        None
-    } else {
-        Some(description.to_string())
-    };
+    let run_commands = read_commands("Run")?;
 
     let tool_config = ToolConfig {
         name: tool_name.to_string(),
-        description,
+        description: Some(description),
         install_commands,
         remove_commands,
         update_commands,
+        run_commands,
         installed: false,
     };
 
@@ -291,6 +605,49 @@ fn add_tool(tool_name: &str) -> Result<()> {
             .green()
             .bold()
     );
+    Ok(())
+}
+
+fn delete_tool(tool_name: &str) -> Result<()> {
+    let mut config = Config::load()?;
+
+    if !config.tools.contains_key(tool_name) {
+        println!(
+            "{}",
+            format!("Tool '{}' not found.", tool_name).yellow()
+        );
+        return Ok(());
+    }
+
+    config.tools.remove(tool_name);
+    config.save()?;
+
+    println!(
+        "{}",
+        format!("✓ Tool '{}' deleted successfully!", tool_name)
+            .green()
+            .bold()
+    );
+    Ok(())
+}
+
+async fn run_tool(tool_name: &str) -> Result<()> {
+    let config = Config::load()?;
+
+    let tool = config
+        .tools
+        .get(tool_name)
+        .ok_or_else(|| anyhow!("Tool '{}' not found.", tool_name))?;
+
+    if tool.run_commands.is_empty() {
+        println!(
+            "{}",
+            format!("No run commands defined for '{}'.", tool_name).yellow()
+        );
+        return Ok(());
+    }
+
+    execute_commands(&tool.run_commands, tool_name, "run").await?;
     Ok(())
 }
 
@@ -345,6 +702,10 @@ fn init_config() -> Result<()> {
                 "sudo apt-get update".to_string(),
                 "sudo apt-get upgrade -y nodejs".to_string(),
             ],
+            run_commands: vec![
+                "node --version".to_string(),
+                "npm --version".to_string(),
+            ],
             installed: false,
         },
     );
@@ -365,6 +726,10 @@ fn init_config() -> Result<()> {
             update_commands: vec![
                 "sudo apt-get update".to_string(),
                 "sudo apt-get upgrade -y docker-ce".to_string(),
+            ],
+            run_commands: vec![
+                "docker --version".to_string(),
+                "docker ps".to_string(),
             ],
             installed: false,
         },
@@ -394,7 +759,15 @@ async fn main() -> Result<()> {
         Commands::Update { tool } => update_tool(&tool).await,
         Commands::List => list_tools(),
         Commands::Add { tool } => add_tool(&tool),
+        Commands::Delete { tool } => delete_tool(&tool),
+        Commands::Run { tool } => run_tool(&tool).await,
         Commands::Init => init_config(),
+        Commands::Sync { action } => match action {
+            SyncAction::Setup { repo, token } => setup_github_sync(repo, token).await,
+            SyncAction::Push => push_config_to_github().await,
+            SyncAction::Pull => pull_config_from_github().await,
+            SyncAction::Status => show_sync_status().await,
+        },
     };
 
     if let Err(e) = result {

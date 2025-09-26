@@ -44,9 +44,15 @@ tkit add mytool
 - `tkit install <tool>` - Install a tool using its defined install commands
 - `tkit remove <tool>` - Remove a tool using its defined remove commands
 - `tkit update <tool>` - Update a tool using its defined update commands
+- `tkit run <tool>` - Run a tool using its defined run commands
 - `tkit list` - List all available tools and their status
 - `tkit add <tool>` - Add a new tool configuration interactively
+- `tkit delete <tool>` - Delete a tool configuration
 - `tkit init` - Initialize configuration with example tools
+- `tkit sync setup <repo>` - Setup GitHub integration for syncing configs
+- `tkit sync push` - Push local config to GitHub
+- `tkit sync pull` - Pull config from GitHub
+- `tkit sync status` - Show sync status
 
 ## Configuration
 
@@ -55,7 +61,8 @@ Tools are configured in `~/.config/tkit/config.yaml`. Each tool can have:
 - **install_commands**: List of commands to install the tool
 - **remove_commands**: List of commands to remove the tool
 - **update_commands**: List of commands to update the tool
-- **description**: Optional description of the tool
+- **run_commands**: List of commands to run the tool
+- **description**: Description of the tool
 
 ### Example Configuration
 
@@ -72,6 +79,9 @@ tools:
     update_commands:
       - sudo apt-get update
       - sudo apt-get upgrade -y nodejs
+    run_commands:
+      - node --version
+      - npm --version
     installed: false
 
   rust:
@@ -84,7 +94,59 @@ tools:
       - rustup self uninstall -y
     update_commands:
       - rustup update
+    run_commands:
+      - rustc --version
+      - cargo --version
     installed: false
+```
+
+## GitHub Sync
+
+TKIT supports syncing your tool configurations with GitHub for backup and sharing across machines.
+
+### Setup GitHub Integration
+
+1. Create a GitHub repository for your configs
+2. Generate a personal access token with `repo` permissions
+3. Configure sync:
+
+```bash
+# Setup with token as argument
+tkit sync setup username/my-tkit-configs --token ghp_xxxxx
+
+# Or setup interactively (token input hidden)
+tkit sync setup username/my-tkit-configs
+```
+
+### Sync Commands
+
+```bash
+# Push your config to GitHub
+tkit sync push
+
+# Pull config from GitHub
+tkit sync pull
+
+# Check sync status
+tkit sync status
+```
+
+### Example Workflow
+
+Setting up a new machine:
+```bash
+# 1. Initialize tkit
+tkit init
+
+# 2. Configure GitHub sync  
+tkit sync setup username/my-configs --token ghp_xxxxx
+
+# 3. Pull your existing configuration
+tkit sync pull
+
+# 4. Install tools
+tkit install docker
+tkit install node
 ```
 
 ## Use Cases
@@ -94,6 +156,7 @@ tools:
 - **Personal Tool Management**: Keep track of installed tools and their versions
 - **Team Onboarding**: Share consistent installation procedures
 - **Cross-Platform Scripts**: Define platform-specific installation commands
+- **Configuration Backup**: Sync configs with GitHub for backup and sharing
 
 ## Examples
 
@@ -101,7 +164,42 @@ tools:
 
 ```bash
 tkit add kubernetes
-# Follow prompts to add install/remove/update commands
+# Follow prompts to add install/remove/update/run commands
+```
+
+### Adding Custom Tools
+
+You can add any custom tool or command:
+
+```bash
+# Add a custom tool for VS Code
+tkit add vscode
+# Description: Visual Studio Code editor
+# Install commands: 
+# 1: wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
+# 2: sudo install -o root -g root -m 644 packages.microsoft.gpg /etc/apt/trusted.gpg.d/
+# 3: sudo apt-get update && sudo apt-get install code
+# Remove commands:
+# 1: sudo apt-get remove code
+# Update commands:
+# 1: sudo apt-get update && sudo apt-get upgrade code
+# Run commands:
+# 1: code
+
+# Add a utility tool
+tkit add curl-example  
+# Description: Curl example website
+# Run commands:
+# 1: curl -s https://httpbin.org/json
+```
+
+### Running Tools
+
+```bash
+# Run a tool's defined commands
+tkit run vscode        # Opens VS Code
+tkit run curl-example  # Executes curl command
+tkit run docker        # Shows Docker version and running containers
 ```
 
 ### Multi-Step Installation Example

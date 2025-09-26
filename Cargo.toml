@@ -4,12 +4,12 @@ version = "0.1.0"
 authors = ["Thembinkosi Mkhonta (thembinkosimkhonta01@gmail.com)"]
 edition = "2024"
 
-description = "A toolkit for managing tasks"
+description = "A customizable tool manager that works like a package manager with customizable install scripts"
 license = "MIT"
 homepage = "https://github.com/thembinkosimkhonta01/tkit"
 repository = "https://github.com/thembinkosimkhonta01/tkit"
 readme = "README.md"
-keywords = ["task", "management", "toolkit"]
+keywords = ["tool", "package-manager", "automation", "installation", "cli"]
 include = ["src/**/*.rs", "Cargo.toml", "README.md"]
 
 [dependencies]
@@ -20,6 +20,10 @@ colored = "3.0.0"
 dirs = "6.0.0"
 serde_yaml = "0.9.34"
 tokio = {version = "1.47.1", features = ["full"]}
+reqwest = {version = "0.12.23", features = ["json"]}
+base64 = "0.22.1"
+url = "2.5.7"
+chrono = "0.4.42"
 
 [[bin]]
 name = "tkit"

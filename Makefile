@@ -14,7 +14,7 @@ doc:
 	cargo doc --release
 
 publish:
-	cargo publish --release
+	cargo publish
 
 publish-dry:
 	cargo publish --dry-run
