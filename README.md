@@ -73,8 +73,7 @@ tkit reset
 - `tkit examples` - Show examples of tool configurations
 - `tkit search local <query>` - Search installed tools locally with fuzzy matching
 - `tkit search remote <query>` - Search remote package registries (apt, snap, cargo)
-- `tkit search all <query>` - Search both local and remote tools
-- `tkit init` - Interactive setup wizard to initialize configuration
+- `tkit search all <query>` - Search both local and remote tools- `tkit init` - Interactive setup wizard to initialize configuration
 - `tkit reset` - Reset configuration (clear all tools and settings)
 - `tkit sync setup <repo>` - Setup GitHub integration for syncing configs
 - `tkit sync create-repo <name>` - Create a new GitHub repository
