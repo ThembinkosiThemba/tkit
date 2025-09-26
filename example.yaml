@@ -1,0 +1,257 @@
+# Example toolmgr configuration file (~/.config/toolmgr/config.yaml)
+
+tools:
+  # Simple single-command tools
+  git:
+    name: git
+    description: Git version control system
+    install_commands:
+      - sudo apt-get install -y git
+    remove_commands:
+      - sudo apt-get remove -y git
+    update_commands:
+      - sudo apt-get update && sudo apt-get upgrade -y git
+    installed: false
+
+  vim:
+    name: vim
+    description: Vi IMproved text editor
+    install_commands:
+      - sudo apt-get install -y vim
+    remove_commands:
+      - sudo apt-get remove -y vim
+    update_commands:
+      - sudo apt-get update && sudo apt-get upgrade -y vim
+    installed: false
+
+  # Multi-step installation with downloads
+  node:
+    name: node
+    description: Node.js JavaScript runtime
+    install_commands:
+      - curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+      - sudo apt-get install -y nodejs
+      - node --version
+      - npm --version
+    remove_commands:
+      - sudo apt-get remove -y nodejs
+      - sudo apt-get autoremove -y
+    update_commands:
+      - sudo apt-get update
+      - sudo apt-get upgrade -y nodejs
+    installed: false
+
+  # Complex installation with user setup
+  docker:
+    name: docker
+    description: Docker container platform
+    install_commands:
+      - sudo apt-get update
+      - sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
+      - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+      - echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      - sudo apt-get update
+      - sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+      - sudo usermod -aG docker $USER
+      - sudo systemctl enable docker
+      - sudo systemctl start docker
+    remove_commands:
+      - sudo systemctl stop docker
+      - sudo systemctl disable docker
+      - sudo apt-get remove -y docker-ce docker-ce-cli containerd.io
+      - sudo rm -rf /var/lib/docker
+      - sudo rm -rf /var/lib/containerd
+    update_commands:
+      - sudo apt-get update
+      - sudo apt-get upgrade -y docker-ce docker-ce-cli containerd.io
+    installed: false
+
+  # Language runtime with environment setup
+  rust:
+    name: rust
+    description: Rust programming language
+    install_commands:
+      - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - echo 'source ~/.cargo/env' >> ~/.bashrc
+      - source ~/.cargo/env
+      - rustc --version
+    remove_commands:
+      - rustup self uninstall -y
+      - sed -i '/source ~\/.cargo\/env/d' ~/.bashrc
+    update_commands:
+      - rustup update stable
+      - rustup update
+    installed: false
+
+  # Python with package manager
+  python3:
+    name: python3
+    description: Python 3 programming language with pip
+    install_commands:
+      - sudo apt-get update
+      - sudo apt-get install -y python3 python3-pip python3-venv
+      - python3 --version
+      - pip3 --version
+    remove_commands:
+      - sudo apt-get remove -y python3 python3-pip python3-venv
+      - sudo apt-get autoremove -y
+    update_commands:
+      - sudo apt-get update
+      - sudo apt-get upgrade -y python3 python3-pip
+      - pip3 install --upgrade pip
+    installed: false
+
+  # Database installation
+  postgresql:
+    name: postgresql
+    description: PostgreSQL database server
+    install_commands:
+      - sudo apt-get update
+      - sudo apt-get install -y postgresql postgresql-contrib
+      - sudo systemctl enable postgresql
+      - sudo systemctl start postgresql
+      - sudo -u postgres createuser --interactive --pwprompt $USER || true
+    remove_commands:
+      - sudo systemctl stop postgresql
+      - sudo systemctl disable postgresql
+      - sudo apt-get remove -y postgresql postgresql-contrib
+      - sudo rm -rf /var/lib/postgresql
+    update_commands:
+      - sudo apt-get update
+      - sudo apt-get upgrade -y postgresql postgresql-contrib
+    installed: false
+
+  # Custom binary installation
+  kubectl:
+    name: kubectl
+    description: Kubernetes command-line tool
+    install_commands:
+      - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      - chmod +x kubectl
+      - sudo mv kubectl /usr/local/bin/
+      - kubectl version --client
+    remove_commands:
+      - sudo rm -f /usr/local/bin/kubectl
+    update_commands:
+      - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      - chmod +x kubectl
+      - sudo mv kubectl /usr/local/bin/
+    installed: false
+
+  # Snap package
+  code:
+    name: code
+    description: Visual Studio Code editor
+    install_commands:
+      - sudo snap install code --classic
+    remove_commands:
+      - sudo snap remove code
+    update_commands:
+      - sudo snap refresh code
+    installed: false
+
+  # Configuration-heavy tool
+  nginx:
+    name: nginx
+    description: Nginx web server
+    install_commands:
+      - sudo apt-get update
+      - sudo apt-get install -y nginx
+      - sudo systemctl enable nginx
+      - sudo systemctl start nginx
+      - sudo ufw allow 'Nginx Full' || true
+    remove_commands:
+      - sudo systemctl stop nginx
+      - sudo systemctl disable nginx
+      - sudo apt-get remove -y nginx
+      - sudo rm -rf /etc/nginx
+      - sudo rm -rf /var/log/nginx
+    update_commands:
+      - sudo apt-get update
+      - sudo apt-get upgrade -y nginx
+      - sudo systemctl restart nginx
+    installed: false
+
+  # Development environment
+  terraform:
+    name: terraform
+    description: Infrastructure as Code tool
+    install_commands:
+      - wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg
+      - echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+      - sudo apt-get update
+      - sudo apt-get install -y terraform
+      - terraform version
+    remove_commands:
+      - sudo apt-get remove -y terraform
+      - sudo rm -f /etc/apt/sources.list.d/hashicorp.list
+      - sudo rm -f /usr/share/keyrings/hashicorp-archive-keyring.gpg
+    update_commands:
+      - sudo apt-get update
+      - sudo apt-get upgrade -y terraform
+    installed: false
+
+  # From GitHub releases
+  gh:
+    name: gh
+    description: GitHub CLI tool
+    install_commands:
+      - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+      - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+      - sudo apt-get update
+      - sudo apt-get install -y gh
+    remove_commands:
+      - sudo apt-get remove -y gh
+      - sudo rm -f /etc/apt/sources.list.d/github-cli.list
+      - sudo rm -f /usr/share/keyrings/githubcli-archive-keyring.gpg
+    update_commands:
+      - sudo apt-get update
+      - sudo apt-get upgrade -y gh
+    installed: false
+
+  # Custom application with dotfiles
+  zsh-setup:
+    name: zsh-setup
+    description: Zsh with Oh My Zsh configuration
+    install_commands:
+      - sudo apt-get install -y zsh
+      - sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+      - chsh -s $(which zsh)
+      - echo "Please log out and back in for zsh to take effect"
+    remove_commands:
+      - chsh -s $(which bash)
+      - rm -rf ~/.oh-my-zsh
+      - rm -f ~/.zshrc
+      - sudo apt-get remove -y zsh
+    update_commands:
+      - cd ~/.oh-my-zsh && git pull
+      - sudo apt-get update && sudo apt-get upgrade -y zsh
+    installed: false
+
+  # Minimal tool (single command each)
+  htop:
+    name: htop
+    description: Interactive process viewer
+    install_commands:
+      - sudo apt-get install -y htop
+    remove_commands:
+      - sudo apt-get remove -y htop
+    update_commands:
+      - sudo apt-get upgrade -y htop
+    installed: false
+
+  # Custom script-based installation
+  dotfiles:
+    name: dotfiles
+    description: Personal dotfiles configuration
+    install_commands:
+      - git clone https://github.com/yourusername/dotfiles.git ~/.dotfiles
+      - cd ~/.dotfiles && ./install.sh
+      - source ~/.bashrc
+    remove_commands:
+      - cd ~/.dotfiles && ./uninstall.sh || true
+      - rm -rf ~/.dotfiles
+    update_commands:
+      - cd ~/.dotfiles && git pull
+      - cd ~/.dotfiles && ./install.sh
+    installed: false
