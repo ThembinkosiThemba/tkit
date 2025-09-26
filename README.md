@@ -19,25 +19,47 @@ sudo cp target/release/tkit /usr/local/bin/
 
 ## Quick Start
 
-1. Initialize configuration:
+### Interactive Setup
+
+TKIT includes a comprehensive setup wizard that guides you through the initial configuration:
+
 ```bash
 tkit init
 ```
 
-2. List available tools:
+The setup wizard will help you:
+1. **Add Essential Tools** - Choose from curated tools (git, docker, node, python)
+2. **Configure GitHub Sync** - Automatically create repositories or use existing ones
+3. **Set Auto-Sync** - Choose between manual or automatic synchronization
+4. **Add Custom Tools** - Create your first custom tool configuration
+
+### Manual Setup
+
+If you prefer manual setup:
+
 ```bash
+# Initialize with example tools
+tkit init
+
+# List available tools
 tkit list
-```
 
-3. Install a tool:
-```bash
+# Install a tool
 tkit install node
-```
 
-4. Add a custom tool:
-```bash
+# Add a custom tool
 tkit add mytool
 ```
+
+### Reset Configuration
+
+Start fresh by clearing all configuration:
+
+```bash
+tkit reset
+```
+
+**Warning**: This permanently deletes all tools, settings, and sync configuration.
 
 ## Commands
 
@@ -48,8 +70,15 @@ tkit add mytool
 - `tkit list` - List all available tools and their status
 - `tkit add <tool>` - Add a new tool configuration interactively
 - `tkit delete <tool>` - Delete a tool configuration
-- `tkit init` - Initialize configuration with example tools
+- `tkit examples` - Show examples of tool configurations
+- `tkit search local <query>` - Search installed tools locally with fuzzy matching
+- `tkit search remote <query>` - Search remote package registries (apt, snap, cargo)
+- `tkit search all <query>` - Search both local and remote tools
+- `tkit init` - Interactive setup wizard to initialize configuration
+- `tkit reset` - Reset configuration (clear all tools and settings)
 - `tkit sync setup <repo>` - Setup GitHub integration for syncing configs
+- `tkit sync create-repo <name>` - Create a new GitHub repository
+- `tkit sync list-repos` - List your GitHub repositories
 - `tkit sync push` - Push local config to GitHub
 - `tkit sync pull` - Pull config from GitHub
 - `tkit sync status` - Show sync status
@@ -106,9 +135,25 @@ TKIT supports syncing your tool configurations with GitHub for backup and sharin
 
 ### Setup GitHub Integration
 
-1. Create a GitHub repository for your configs
-2. Generate a personal access token with `repo` permissions
-3. Configure sync:
+1. **Option A: Create repository automatically**
+   ```bash
+   # Create and configure a new repository
+   tkit sync create-repo my-tkit-configs --private
+   ```
+
+2. **Option B: Use existing repository**
+   ```bash
+   # List your repositories
+   tkit sync list-repos
+   
+   # Configure sync with existing repo
+   tkit sync setup username/existing-repo --token ghp_xxxxx
+   ```
+
+3. **Option C: Manual setup**
+   - Create a GitHub repository manually
+   - Generate a personal access token with `repo` permissions
+   - Configure sync:
 
 ```bash
 # Setup with token as argument
@@ -127,9 +172,18 @@ tkit sync push
 # Pull config from GitHub
 tkit sync pull
 
-# Check sync status
+# Check sync status (includes auto-sync status)
 tkit sync status
 ```
+
+### Auto-Sync Feature
+
+TKIT can automatically sync your configuration to GitHub whenever you make changes:
+
+- **Enabled**: Changes are automatically pushed to GitHub after adding, deleting, installing, or removing tools
+- **Disabled**: Manual sync using `tkit sync push`
+
+Auto-sync is configured during the initial setup wizard or can be enabled by editing your configuration file.
 
 ### Example Workflow
 
@@ -147,6 +201,64 @@ tkit sync pull
 # 4. Install tools
 tkit install docker
 tkit install node
+```
+
+## Search Functionality
+
+TKIT includes powerful search capabilities with fuzzy matching to help you find tools quickly.
+
+### Search Commands
+
+```bash
+# Search for tools installed on your system
+tkit search local python
+tkit search local code
+
+# Search remote package registries
+tkit search remote docker
+tkit search remote node
+
+# Search everything (local + remote)
+tkit search all git
+```
+
+### Search Features
+
+- **Fuzzy Matching**: Find tools even with typos (e.g., "pytho" will match "python")
+- **Multiple Package Managers**: Searches apt, snap, and cargo registries
+- **System Detection**: Shows installed binaries with version info and install path
+- **Package Manager Detection**: Identifies how tools were installed
+- **Configured Tool Search**: Searches your TKIT tool configurations
+
+### Search Example Output
+
+```bash
+$ tkit search local python
+
+Searching for 'python' in local system...
+
+Configured Tools:
+  ✓ python - Python programming language
+
+System Binaries:
+  ✓ python3 - /usr/bin/python3 (Python 3.12.3)
+  ✗ python - not installed
+```
+
+## Examples Command
+
+Get inspired with curated tool configurations:
+
+```bash
+# Show all examples
+tkit examples
+
+# Categories include:
+# - Development Tools (VS Code, Git, Docker)
+# - Programming Languages (Python, Rust, Go, Node.js)
+# - Utilities (curl commands, system info)
+# - Web Development (nginx, databases)
+# - DevOps Tools (kubectl, terraform)
 ```
 
 ## Use Cases
