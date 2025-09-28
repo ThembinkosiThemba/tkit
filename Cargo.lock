@@ -1862,6 +1862,7 @@ dependencies = [
  "chrono",
  "clap",
  "colored",
+ "crossterm",
  "dirs",
  "fuzzy-matcher",
  "predicates",
