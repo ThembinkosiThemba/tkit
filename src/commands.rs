@@ -2,7 +2,6 @@ use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
 use clap::Subcommand;
 use colored::*;
-use fuzzy_matcher::FuzzyMatcher;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use std::{fs, process::Command};
@@ -26,11 +25,6 @@ pub enum Commands {
     Run { tool: String },
     /// Show examples of tool configurations
     Examples,
-    /// Search for tools
-    Search {
-        #[command(subcommand)]
-        action: SearchAction,
-    },
     /// Initialize the tkit configuration
     Init,
     /// Reset configuration (clear all tools and settings)
@@ -39,25 +33,6 @@ pub enum Commands {
     Sync {
         #[command(subcommand)]
         action: SyncAction,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum SearchAction {
-    /// Search installed tools locally
-    Local {
-        /// Tool name to search for
-        query: String,
-    },
-    /// Search remote package registries
-    Remote {
-        /// Tool name to search for
-        query: String,
-    },
-    /// Search both local and configured tools
-    All {
-        /// Tool name to search for
-        query: String,
     },
 }
 
@@ -79,8 +54,12 @@ pub enum SyncAction {
         #[arg(short, long)]
         private: bool,
     },
-    /// List user's repositories
-    ListRepos,
+    /// Update GitHub personal access token
+    UpdateToken {
+        /// New GitHub personal access token
+        #[arg(short, long)]
+        token: Option<String>,
+    },
     /// Push local config to GitHub
     Push,
     /// Pull config from GitHub
@@ -110,11 +89,6 @@ struct GitHubCreateFile {
     message: String,
     content: String,
     sha: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct GitHubResponse {
-    content: GitHubFile,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -349,6 +323,42 @@ pub async fn setup_github_sync(repo: String, token: Option<String>) -> Result<()
     );
     println!("  Use 'tkit sync push' to upload your config");
     println!("  Use 'tkit sync pull' to download config from GitHub");
+
+    Ok(())
+}
+
+pub async fn update_github_token(token: Option<String>) -> Result<()> {
+    let mut config = Config::load()?;
+
+    // Check if sync is already configured
+    let repo = config.sync.repo.as_ref().ok_or_else(|| {
+        anyhow!("GitHub sync not configured. Run 'tkit sync setup <repo>' first.")
+    })?;
+
+    let token = if let Some(t) = token {
+        t
+    } else {
+        use std::io::{self, Write};
+        print!("Enter your new GitHub Personal Access Token: ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        input.trim().to_string()
+    };
+
+    // Validate the new token
+    validate_github_access(repo, &token).await?;
+
+    // Update the token
+    config.sync.token = Some(token);
+    config.save()?;
+
+    println!(
+        "{}",
+        "✓ GitHub token updated successfully!"
+            .green()
+            .bold()
+    );
 
     Ok(())
 }
@@ -641,326 +651,6 @@ pub async fn run_tool(tool_name: &str) -> Result<()> {
     }
 
     execute_commands(&tool.run_commands, tool_name, "run").await?;
-    Ok(())
-}
-
-pub async fn search_local_tools(query: &str) -> Result<()> {
-    use fuzzy_matcher::skim::SkimMatcherV2;
-    use which::which;
-
-    println!(
-        "{}",
-        format!("Searching for '{}' in local system...", query)
-            .blue()
-            .bold()
-    );
-    println!();
-
-    let config = Config::load()?;
-    let matcher = SkimMatcherV2::default();
-    let mut found_any = false;
-
-    // Search configured tools
-    println!("{}", "Configured Tools:".cyan().bold());
-    let mut config_matches = Vec::new();
-
-    for (name, tool) in &config.tools {
-        if let Some(score) = matcher.fuzzy_match(name, query) {
-            config_matches.push((name, tool, score));
-        } else if let Some(desc) = &tool.description {
-            if let Some(score) = matcher.fuzzy_match(desc, query) {
-                config_matches.push((name, tool, score / 2)); // Lower score for description matches
-            }
-        }
-    }
-
-    // Sort by fuzzy match score
-    config_matches.sort_by(|a, b| b.2.cmp(&a.2));
-
-    if config_matches.is_empty() {
-        println!("  No configured tools match '{}'", query);
-    } else {
-        found_any = true;
-        for (name, tool, _score) in config_matches {
-            let status = if tool.installed {
-                "✓".green()
-            } else {
-                "✗".red()
-            };
-            let desc = tool.description.as_deref().unwrap_or("No description");
-            println!("  {} {} - {}", status, name.bold(), desc);
-        }
-    }
-
-    println!();
-
-    // Search system binaries
-    println!("{}", "System Binaries:".cyan().bold());
-    let common_tools = [
-        "git",
-        "docker",
-        "node",
-        "npm",
-        "python",
-        "python3",
-        "pip",
-        "pip3",
-        "rust",
-        "rustc",
-        "cargo",
-        "go",
-        "java",
-        "javac",
-        "gcc",
-        "clang",
-        "make",
-        "cmake",
-        "curl",
-        "wget",
-        "vim",
-        "nano",
-        "emacs",
-        "code",
-        "kubectl",
-        "terraform",
-        "ansible",
-        "nginx",
-        "apache2",
-        "mysql",
-        "postgres",
-    ];
-
-    let mut binary_matches = Vec::new();
-
-    for tool in &common_tools {
-        if let Some(score) = matcher.fuzzy_match(tool, query) {
-            binary_matches.push((tool, score));
-        }
-    }
-
-    // Sort by fuzzy match score
-    binary_matches.sort_by(|a, b| b.1.cmp(&a.1));
-
-    if binary_matches.is_empty() {
-        println!("  No system binaries match '{}'", query);
-    } else {
-        for (tool, _score) in binary_matches {
-            match which(tool) {
-                Ok(path) => {
-                    found_any = true;
-                    // Try to get version info
-                    let version_info = get_tool_version(tool);
-                    println!(
-                        "  {} {} - {} {}",
-                        "✓".green(),
-                        tool.bold(),
-                        path.display(),
-                        version_info.unwrap_or_default().dimmed()
-                    );
-                }
-                Err(_) => {
-                    // Tool matches but not installed
-                    println!(
-                        "  {} {} - {}",
-                        "✗".red(),
-                        tool.bold(),
-                        "not installed".dimmed()
-                    );
-                }
-            }
-        }
-    }
-
-    if !found_any {
-        println!(
-            "{}",
-            format!("No tools found matching '{}'", query).yellow()
-        );
-        println!("Try 'tkit examples' to see available tool configurations.");
-    }
-
-    Ok(())
-}
-
-pub fn get_tool_version(tool: &str) -> Option<String> {
-    let version_args = match tool {
-        "git" | "docker" | "node" | "npm" | "python" | "python3" | "pip" | "pip3" | "rustc"
-        | "cargo" | "go" | "java" | "gcc" | "clang" | "curl" | "wget" | "kubectl" | "terraform"
-        | "nginx" => vec!["--version"],
-        "vim" | "nano" => vec!["--version"],
-        "make" => vec!["--version"],
-        "cmake" => vec!["--version"],
-        _ => return None,
-    };
-
-    for args in &version_args {
-        if let Ok(output) = Command::new(tool).arg(args).output() {
-            if output.status.success() {
-                let version_str = String::from_utf8_lossy(&output.stdout);
-                if let Some(first_line) = version_str.lines().next() {
-                    return Some(format!("({})", first_line.trim()));
-                }
-            }
-        }
-    }
-    None
-}
-
-pub async fn search_remote_tools(query: &str) -> Result<()> {
-    use fuzzy_matcher::skim::SkimMatcherV2;
-
-    println!(
-        "{}",
-        format!("Searching for '{}' in remote registries...", query)
-            .blue()
-            .bold()
-    );
-    println!();
-
-    let matcher = SkimMatcherV2::default();
-
-    // Search common package managers
-    search_apt_packages(query, &matcher).await?;
-    search_snap_packages(query, &matcher).await?;
-    search_cargo_crates(query, &matcher).await?;
-
-    Ok(())
-}
-
-pub async fn search_apt_packages(
-    query: &str,
-    matcher: &fuzzy_matcher::skim::SkimMatcherV2,
-) -> Result<()> {
-    println!("{}", "APT Packages:".cyan().bold());
-
-    // Common development packages that might match
-    let common_apt_packages = [
-        ("git", "Version control system"),
-        ("docker.io", "Container platform"),
-        ("nodejs", "Node.js runtime"),
-        ("python3", "Python programming language"),
-        ("python3-pip", "Python package manager"),
-        ("golang-go", "Go programming language"),
-        ("default-jdk", "Java development kit"),
-        ("build-essential", "Essential build tools"),
-        ("curl", "Command line HTTP client"),
-        ("wget", "Web file downloader"),
-        ("vim", "Text editor"),
-        ("nginx", "Web server"),
-        ("mysql-server", "MySQL database server"),
-        ("postgresql", "PostgreSQL database"),
-    ];
-
-    let mut matches = Vec::new();
-    for (pkg, desc) in &common_apt_packages {
-        if let Some(score) = matcher.fuzzy_match(pkg, query) {
-            matches.push((pkg, desc, score));
-        }
-    }
-
-    matches.sort_by(|a, b| b.2.cmp(&a.2));
-
-    if matches.is_empty() {
-        println!("  No APT packages match '{}'", query);
-    } else {
-        for (pkg, desc, _) in matches.iter().take(5) {
-            println!("  {} - {} {}", pkg.bold(), desc, "(apt)".dimmed());
-        }
-    }
-    println!();
-
-    Ok(())
-}
-
-pub async fn search_snap_packages(
-    query: &str,
-    matcher: &fuzzy_matcher::skim::SkimMatcherV2,
-) -> Result<()> {
-    println!("{}", "Snap Packages:".cyan().bold());
-
-    let common_snap_packages = [
-        ("code", "Visual Studio Code"),
-        ("docker", "Container platform"),
-        ("kubectl", "Kubernetes CLI"),
-        ("terraform", "Infrastructure as Code"),
-        ("go", "Go programming language"),
-        ("node", "Node.js runtime"),
-        ("discord", "Communication platform"),
-        ("postman", "API development environment"),
-    ];
-
-    let mut matches = Vec::new();
-    for (pkg, desc) in &common_snap_packages {
-        if let Some(score) = matcher.fuzzy_match(pkg, query) {
-            matches.push((pkg, desc, score));
-        }
-    }
-
-    matches.sort_by(|a, b| b.2.cmp(&a.2));
-
-    if matches.is_empty() {
-        println!("  No Snap packages match '{}'", query);
-    } else {
-        for (pkg, desc, _) in matches.iter().take(5) {
-            println!("  {} - {} {}", pkg.bold(), desc, "(snap)".dimmed());
-        }
-    }
-    println!();
-
-    Ok(())
-}
-
-pub async fn search_cargo_crates(
-    query: &str,
-    matcher: &fuzzy_matcher::skim::SkimMatcherV2,
-) -> Result<()> {
-    println!("{}", "Cargo Crates:".cyan().bold());
-
-    let common_crates = [
-        ("ripgrep", "Fast grep alternative"),
-        ("bat", "Cat alternative with syntax highlighting"),
-        ("exa", "Modern ls replacement"),
-        ("fd-find", "Simple, fast alternative to find"),
-        ("hyperfine", "Command-line benchmarking tool"),
-        ("tokei", "Count lines of code"),
-        ("gitui", "Terminal git UI"),
-        ("bottom", "System monitor"),
-    ];
-
-    let mut matches = Vec::new();
-    for (pkg, desc) in &common_crates {
-        if let Some(score) = matcher.fuzzy_match(pkg, query) {
-            matches.push((pkg, desc, score));
-        }
-    }
-
-    matches.sort_by(|a, b| b.2.cmp(&a.2));
-
-    if matches.is_empty() {
-        println!("  No Cargo crates match '{}'", query);
-    } else {
-        for (pkg, desc, _) in matches.iter().take(5) {
-            println!("  {} - {} {}", pkg.bold(), desc, "(cargo)".dimmed());
-        }
-    }
-    println!();
-
-    Ok(())
-}
-
-pub async fn search_all_tools(query: &str) -> Result<()> {
-    println!(
-        "{}",
-        format!("Comprehensive search for '{}'...", query)
-            .blue()
-            .bold()
-    );
-    println!();
-
-    search_local_tools(query).await?;
-    println!();
-    search_remote_tools(query).await?;
-
     Ok(())
 }
 
@@ -1263,7 +953,6 @@ pub async fn init_config() -> Result<()> {
     println!("{}", "Next steps:".yellow().bold());
     println!("  • Run 'tkit list' to see your configured tools");
     println!("  • Run 'tkit examples' to see more tool ideas");
-    println!("  • Run 'tkit search <tool>' to find tools to install");
     println!("  • Run 'tkit add <tool>' to add more custom tools");
 
     if config.sync.repo.is_some() {
@@ -1466,70 +1155,3 @@ pub async fn create_github_repo(name: &str, private: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn list_github_repos() -> Result<()> {
-    let config = Config::load()?;
-
-    let token =
-        config.sync.token.as_ref().ok_or_else(|| {
-            anyhow!("GitHub token not found. Run 'tkit sync setup <repo>' first.")
-        })?;
-
-    let client = reqwest::Client::new();
-    let url = "https://api.github.com/user/repos?type=all&sort=updated&per_page=30";
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", token))?,
-    );
-    headers.insert(USER_AGENT, HeaderValue::from_static("tkit/0.1.0"));
-
-    let response = client.get(url).headers(headers).send().await?;
-
-    if response.status().is_success() {
-        let repos: Vec<GitHubRepo> = response.json().await?;
-
-        if repos.is_empty() {
-            println!("{}", "No repositories found.".yellow());
-            return Ok(());
-        }
-
-        println!("{}", "Your GitHub Repositories:".blue().bold());
-        println!();
-
-        for (i, repo) in repos.iter().enumerate() {
-            let privacy = if repo.private {
-                "private".red()
-            } else {
-                "public".green()
-            };
-            let current = if config.sync.repo.as_ref() == Some(&repo.full_name) {
-                " (current)".yellow()
-            } else {
-                "".normal()
-            };
-
-            println!(
-                "{}. {} {} {}{}",
-                (i + 1).to_string().dimmed(),
-                repo.full_name.bold(),
-                privacy,
-                repo.description
-                    .as_deref()
-                    .unwrap_or("No description")
-                    .dimmed(),
-                current
-            );
-        }
-
-        println!();
-        println!("{}", "Usage:".yellow().bold());
-        println!("  tkit sync setup <repo-name>     - Configure sync with a repository");
-        println!("  tkit sync create-repo <name>    - Create a new repository");
-    } else {
-        let error_text = response.text().await?;
-        return Err(anyhow!("Failed to list repositories: {}", error_text));
-    }
-
-    Ok(())
-}

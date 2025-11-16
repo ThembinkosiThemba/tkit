@@ -10,6 +10,13 @@ cargo install tkit
 
 Or build from source:
 
+**Linux users**: Install required dependencies first:
+```bash
+sudo apt update
+sudo apt install pkg-config build-essential libssl-dev
+```
+
+Then build:
 ```bash
 git clone https://github.com/ThembinkosiThemba/tkit
 cd tkit
@@ -71,13 +78,11 @@ tkit reset
 - `tkit add <tool>` - Add a new tool configuration interactively
 - `tkit delete <tool>` - Delete a tool configuration
 - `tkit examples` - Show examples of tool configurations
-- `tkit search local <query>` - Search installed tools locally with fuzzy matching
-- `tkit search remote <query>` - Search remote package registries (apt, snap, cargo)
-- `tkit search all <query>` - Search both local and remote tools- `tkit init` - Interactive setup wizard to initialize configuration
+- `tkit init` - Interactive setup wizard to initialize configuration
 - `tkit reset` - Reset configuration (clear all tools and settings)
 - `tkit sync setup <repo>` - Setup GitHub integration for syncing configs
 - `tkit sync create-repo <name>` - Create a new GitHub repository
-- `tkit sync list-repos` - List your GitHub repositories
+- `tkit sync update-token` - Update GitHub personal access token
 - `tkit sync push` - Push local config to GitHub
 - `tkit sync pull` - Pull config from GitHub
 - `tkit sync status` - Show sync status
@@ -142,9 +147,6 @@ TKIT supports syncing your tool configurations with GitHub for backup and sharin
 
 2. **Option B: Use existing repository**
    ```bash
-   # List your repositories
-   tkit sync list-repos
-   
    # Configure sync with existing repo
    tkit sync setup username/existing-repo --token ghp_xxxxx
    ```
@@ -170,6 +172,12 @@ tkit sync push
 
 # Pull config from GitHub
 tkit sync pull
+
+# Update your GitHub token
+tkit sync update-token
+
+# Or provide token directly
+tkit sync update-token --token ghp_xxxxx
 
 # Check sync status (includes auto-sync status)
 tkit sync status
@@ -200,48 +208,6 @@ tkit sync pull
 # 4. Install tools
 tkit install docker
 tkit install node
-```
-
-## Search Functionality
-
-TKIT includes powerful search capabilities with fuzzy matching to help you find tools quickly.
-
-### Search Commands
-
-```bash
-# Search for tools installed on your system
-tkit search local python
-tkit search local code
-
-# Search remote package registries
-tkit search remote docker
-tkit search remote node
-
-# Search everything (local + remote)
-tkit search all git
-```
-
-### Search Features
-
-- **Fuzzy Matching**: Find tools even with typos (e.g., "pytho" will match "python")
-- **Multiple Package Managers**: Searches apt, snap, and cargo registries
-- **System Detection**: Shows installed binaries with version info and install path
-- **Package Manager Detection**: Identifies how tools were installed
-- **Configured Tool Search**: Searches your TKIT tool configurations
-
-### Search Example Output
-
-```bash
-$ tkit search local python
-
-Searching for 'python' in local system...
-
-Configured Tools:
-  ✓ python - Python programming language
-
-System Binaries:
-  ✓ python3 - /usr/bin/python3 (Python 3.12.3)
-  ✗ python - not installed
 ```
 
 ## Examples Command
